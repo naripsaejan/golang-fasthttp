@@ -78,7 +78,7 @@ if err != nil {
 }
 
 // Find the book to update by ID
-index := -1
+index := -v1
 for i := range books {
     if books[i].ID == idStr {
         index = i
