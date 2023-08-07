@@ -1,147 +1,61 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"log"
+	"net/http"
+	"time"
 
-	"github.com/fasthttp/router"
-	"github.com/valyala/fasthttp"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type Book struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Author string `json:"author"`
-}
-
-var books = []Book{
-	{ID: "1", Title: "Harry Potter", Author: "J. K. Rowling"},
-	{ID: "2", Title: "The Lord of the Rings", Author: "J. R. R. Tolkien"},
-	{ID: "3", Title: "The Wizard of Oz", Author: "L. Frank Baum"},
-}
-
-//check duplicate ID
-func isBookIDUnique(id string) bool {
-	for _, book := range books {
-		if book.ID == id {
-			return false
-		}
-	}
-	return true
-}
-
-//Get
-func BookGet(ctx *fasthttp.RequestCtx) {
-    b,err := json.Marshal(books)
-    if err != nil {
-        log.Fatal(err)
-    }
-    ctx.Response.Header.SetContentType("application/json")
-    ctx.Write(b)
-}
-
-//Post
-func BookPost(ctx *fasthttp.RequestCtx) {
-	ctx.Response.Header.SetContentType("application/json")
-
-	var newBook Book
-	err := json.Unmarshal(ctx.Request.Body(), &newBook)
-	if err != nil {
-		ctx.Error("Invalid JSON", fasthttp.StatusBadRequest)
-		return
-	}
-
-	if !isBookIDUnique(newBook.ID) {
-		ctx.WriteString("Invalid add id")
-		return
-	}
-
-	books = append(books, newBook)
-	responseJSON, _ := json.Marshal(newBook)
-	ctx.Write(responseJSON)
-}
-
-//Patch
-func BookPatch(ctx *fasthttp.RequestCtx) {
-    ctx.Response.Header.SetContentType("application/json")
-
-    idStr := ctx.UserValue("id").(string)
-
-var updatedBook Book
-
-b := ctx.Request.Body()
-err := json.Unmarshal(b, &updatedBook)
-
-if err != nil {
-    ctx.Error("Invalid JSON", fasthttp.StatusBadRequest)
-    return
-}
-
-// Find the book to update by ID
-index := -v1
-for i := range books {
-    if books[i].ID == idStr {
-        index = i
-        break
-    }
-}
-
-if index == -1 {
-    ctx.Error("Book not found", fasthttp.StatusNotFound)
-    return
-}
-
- // Update the book's fields 
-if updatedBook.Title != "" {
-    books[index].Title = updatedBook.Title
-}
-if updatedBook.Author != "" {
-    books[index].Author = updatedBook.Author
-}
-
-responseJSON, err := json.Marshal(books[index])
-if err != nil {
-    ctx.Error("Failed to marshal JSON", fasthttp.StatusInternalServerError)
-    return
-}
-
-ctx.Write(responseJSON)
-}
-
-//delete
-func BookDelete(ctx *fasthttp.RequestCtx) {
-    idStr, ok := ctx.UserValue("id").(string)
-    if !ok {
-        ctx.Error("Invalid ID", fasthttp.StatusBadRequest)
-        return
-    }
-
-    index := -1
-    for i, book := range books {
-        if book.ID == idStr {
-            index = i
-            break
-        }
-    }
-
-    if index == -1 {
-        ctx.Error("No id", fasthttp.StatusNotFound)
-        return
-    }
-
-    books = append(books[:index], books[index+1:]...)
-    ctx.WriteString("Delete successful")
-}
-
 func main() {
-    r := router.New()
+	// MongoDB connection URI
+	mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
+	// mongoURI := "mongodb://localhost:27017/"
 
-    r.GET("/books",BookGet)
-    r.POST("/books",BookPost)
-    r.PATCH("/books/{id}",BookPatch)
-	r.DELETE("/books/{id}", BookDelete)
+	// Set up a MongoDB client
+	client, err := mongo.NewClient(options.Client().ApplyURI(mongoURI))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    fasthttp.ListenAndServe(":3000", r.Handler)
-	
+	// Create a context with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Connect to the MongoDB
+	err = client.Connect(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Ping the MongoDB to ensure connectivity
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Connected to MongoDB!")
+
+	// Close the MongoDB connection when the application exits
+	defer func() {
+		if err = client.Disconnect(ctx); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// Define an HTTP handler
+	http.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
+		// You can perform MongoDB operations here using the 'client' instance
+		// For example, fetching data from the "testdb" and "testcollection"
+		// collection and returning it as a JSON response.
+		// You'll need to import the appropriate packages and handle errors properly.
+	})
+
+	// Start the HTTP server
+	log.Println("Starting server on :8080...")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatal(err)
+	}
 }
-
