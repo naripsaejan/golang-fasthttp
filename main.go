@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 
+	// "github.com/Shopify/sarama"
+	"github.com/IBM/sarama"
 	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
 	"go.mongodb.org/mongo-driver/bson"
@@ -33,6 +35,7 @@ const (
 
 var (
 	mongoClient *mongo.Client
+kafkaProducer sarama.SyncProducer
 )
 
 //-------------------- function -----------------------//
@@ -50,6 +53,21 @@ func connectToMongo() error {
 	mongoClient = client
 	fmt.Println("Connected to MongoDB")
 	return nil
+}
+// kafkaProducer
+func initKafkaProducer() error {
+    config := sarama.NewConfig()
+    config.Producer.RequiredAcks = sarama.WaitForAll
+    config.Producer.Return.Successes = true
+
+    brokers := []string{"localhost:9092"} // Update with your Kafka broker addresses
+    producer, err := sarama.NewSyncProducer(brokers, config)
+    if err != nil {
+        return err
+    }
+
+    kafkaProducer = producer
+    return nil
 }
 // check duplicate ID
 func isBookIDUnique(id string) bool {
@@ -127,7 +145,7 @@ func BookGetByID(ctx *fasthttp.RequestCtx) {
 
 // Post
 func BookPost(ctx *fasthttp.RequestCtx) {
-	// Set response content type
+   	// Set response content type
 	ctx.SetContentType("application/json")
 
 	// Parse request body
@@ -146,26 +164,77 @@ func BookPost(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	
-	// Insert the new book into MongoDB
-	collection := mongoClient.Database(dbName).Collection("books")
-	_, err = collection.InsertOne(context.Background(), newBook)
-	if err != nil {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(internalError))
-		return
-	}
+    // Insert the new book into MongoDB
+    collection := mongoClient.Database(dbName).Collection("books")
+    _, err = collection.InsertOne(context.Background(), newBook)
+    if err != nil {
+        ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+        ctx.Write([]byte(internalError))
+        return
+    }
 
-	// Respond with the added book
-	responseJSON, err := json.Marshal(newBook)
-	if err != nil {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(internalError))
-		return
-	}
+    // Send message to Kafka topic
+    kafkaMessage := &sarama.ProducerMessage{
+        Topic: "new_book_topic", // Update with your Kafka topic
+        Value: sarama.StringEncoder(newBook.ID),
+    }
+    _, _, err = kafkaProducer.SendMessage(kafkaMessage)
+    if err != nil {
+        log.Println("Failed to send message to Kafka:", err)
+        // You might handle the error here as appropriate for your use case
+    }
 
-	ctx.Write(responseJSON)
+    // Respond with the added book
+    responseJSON, err := json.Marshal(newBook)
+    if err != nil {
+        ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+        ctx.Write([]byte(internalError))
+        return
+    }
+
+    ctx.Write(responseJSON)
 }
+
+// func BookPost(ctx *fasthttp.RequestCtx) {
+// 	// Set response content type
+// 	ctx.SetContentType("application/json")
+
+// 	// Parse request body
+// 	var newBook Book
+// 	err := json.Unmarshal(ctx.Request.Body(), &newBook)
+// 	if err != nil {
+// 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+// 		ctx.Write([]byte(invalidRequest))
+// 		return
+// 	}
+
+// 	// Check if the book ID is unique :set unique in database
+// 	if !isBookIDUnique(newBook.ID) || newBook.ID == ""{
+// 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+// 		ctx.Write([]byte(invalidRequest))
+// 		return
+// 	}
+
+	
+// 	// Insert the new book into MongoDB
+// 	collection := mongoClient.Database(dbName).Collection("books")
+// 	_, err = collection.InsertOne(context.Background(), newBook)
+// 	if err != nil {
+// 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+// 		ctx.Write([]byte(internalError))
+// 		return
+// 	}
+
+// 	// Respond with the added book
+// 	responseJSON, err := json.Marshal(newBook)
+// 	if err != nil {
+// 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+// 		ctx.Write([]byte(internalError))
+// 		return
+// 	}
+
+// 	ctx.Write(responseJSON)
+// }
 
 // Patch
 func BookPatch(ctx *fasthttp.RequestCtx) {
