@@ -21,27 +21,36 @@ type Book struct {
 }
 
 // -------------------- variable -----------------------//
+const (
+	dbName         = "test"
+	invalidRequest = `{"status":"40000","error":"Invalid request"}`
+	internalError  = `{"status":"50000","error":"Internal server error"}`
+	notFoundError  = `{"status":"40004","error":"Book not found"}`
+	variableSuccess=`{
+		"status":"20000",
+		"message": "Delete successful"}`
+)
+
 var (
 	mongoClient *mongo.Client
-	dbName      = "test"
 )
 
 //-------------------- function -----------------------//
 
 // connectDB
-func connectToMongo() {
+func connectToMongo() error {
 	// mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
 	mongoURI := "mongodb://localhost:27017/"
 	clientOptions := options.Client().ApplyURI(mongoURI)
 	client, err := mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	mongoClient = client
 	fmt.Println("Connected to MongoDB")
+	return nil
 }
-
 // check duplicate ID
 func isBookIDUnique(id string) bool {
 	collection := mongoClient.Database(dbName).Collection("books")
@@ -69,9 +78,7 @@ func BookGetAll(ctx *fasthttp.RequestCtx) {
 	cur, err := collection.Find(context.Background(), filter)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{
-			"status":"50000",
-			"error": "Error retrieving data from MongoDB"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 	defer cur.Close(context.Background())
@@ -80,9 +87,7 @@ func BookGetAll(ctx *fasthttp.RequestCtx) {
 		var book Book
 		if err := cur.Decode(&book); err != nil {
 			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-			ctx.Write([]byte(`{
-				"status":"50000",
-				"error": "Error decoding data from MongoDB"}`))
+			ctx.Write([]byte(internalError))
 			return
 		}
 		results = append(results, book)
@@ -111,9 +116,7 @@ func BookGetByID(ctx *fasthttp.RequestCtx) {
 	err := collection.FindOne(context.Background(), filter).Decode(&book)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
-		ctx.Write([]byte(`{
-			"status":"40004",
-			"error": "Book not found"}`))
+		ctx.Write([]byte(notFoundError))
 		return
 	}
 
@@ -132,28 +135,24 @@ func BookPost(ctx *fasthttp.RequestCtx) {
 	err := json.Unmarshal(ctx.Request.Body(), &newBook)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(`{
-			"status":"40000",
-			"error": "Invalid add id"}`))
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
 	// Check if the book ID is unique :set unique in database
-	if !isBookIDUnique(newBook.ID) || "" == newBook.ID {
+	if !isBookIDUnique(newBook.ID) || newBook.ID == ""{
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(`{
-			"status":"40000",
-			"error": "Invalid add id"}`))
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
+	
 	// Insert the new book into MongoDB
 	collection := mongoClient.Database(dbName).Collection("books")
 	_, err = collection.InsertOne(context.Background(), newBook)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{"status":"50000",
-		"error": "Error inserting data into MongoDB"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 
@@ -161,8 +160,7 @@ func BookPost(ctx *fasthttp.RequestCtx) {
 	responseJSON, err := json.Marshal(newBook)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{"status":"50000",
-		"error": "Failed to marshal JSON"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 
@@ -215,9 +213,7 @@ func BookPatch(ctx *fasthttp.RequestCtx) {
 	log.Println("update", update)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{
-			"status":"50000",
-			"error": "Error updating data in MongoDB"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 
@@ -226,9 +222,7 @@ func BookPatch(ctx *fasthttp.RequestCtx) {
 	err = collection.FindOne(context.Background(), filter).Decode(&updatedBookWithID)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{
-			"status":"50000",
-			"error": "Error retrieving updated books"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 
@@ -236,9 +230,7 @@ func BookPatch(ctx *fasthttp.RequestCtx) {
 	responseJSON, err := json.Marshal(updatedBookWithID)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{
-			"status":"50000",
-			"error": "Failed to marshal JSON"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 	ctx.Write(responseJSON)
@@ -252,9 +244,7 @@ func BookDeleteById(ctx *fasthttp.RequestCtx) {
 	idStr, ok := ctx.UserValue("id").(string)
 	if !ok {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(`{
-			"status":"40000",
-			"error": "Invalid ID"}`))
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
@@ -265,15 +255,11 @@ func BookDeleteById(ctx *fasthttp.RequestCtx) {
 	_, err := collection.DeleteOne(context.Background(), filter)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.Write([]byte(`{
-			"status":"50000",
-			"error": "Error deleting data from MongoDB"}`))
+		ctx.Write([]byte(internalError))
 		return
 	}
 
-	ctx.Write([]byte(`{
-		"status":"20000",
-		"message": "Delete successful"}`))
+	ctx.Write([]byte(variableSuccess))
 }
 
 func main() {
@@ -285,7 +271,7 @@ func main() {
 	//------EndPoint-----------//
 	r.GET("/books/read", BookGetAll)
 	r.GET("/books/read/{id}", BookGetByID)
-	r.POST("/books/create", BookPost) //ปรับเพิ่มแล้ว
+	r.POST("/books/create", BookPost) 
 	r.PATCH("/books/update/{id}", BookPatch)
 	r.DELETE("/books/delete/{id}", BookDeleteById)
 
