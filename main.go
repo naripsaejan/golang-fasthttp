@@ -30,8 +30,8 @@ var (
 
 // connectDB
 func connectToMongo() {
-	mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
-	// mongoURI := "mongodb://localhost:27017/"
+	// mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
+	mongoURI := "mongodb://localhost:27017/"
 	clientOptions := options.Client().ApplyURI(mongoURI)
 	client, err := mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
@@ -280,7 +280,7 @@ func main() {
 	r := router.New()
 	//run database
 	connectToMongo()
-	// defer mongoClient.Disconnect(context.Background())
+	defer mongoClient.Disconnect(context.Background())
 
 	//------EndPoint-----------//
 	r.GET("/books/read", BookGetAll)
