@@ -3,13 +3,13 @@ module examp/hello-fast-http
 go 1.20
 
 require (
+	github.com/IBM/sarama v1.40.1
 	github.com/fasthttp/router v1.4.20
 	github.com/valyala/fasthttp v1.48.0
 	go.mongodb.org/mongo-driver v1.12.1
 )
 
 require (
-	github.com/IBM/sarama v1.40.1 // indirect
 	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/buaazp/fasthttprouter v0.1.1 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect

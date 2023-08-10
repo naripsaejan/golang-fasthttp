@@ -1,11 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 
+	"github.com/IBM/sarama"
 	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // -------------------- struct -----------------------//
@@ -16,136 +22,327 @@ type Book struct {
 }
 
 // -------------------- variable -----------------------//
-var books = []Book{
-	{ID: "1", Title: "Harry Potter", Author: "J. K. Rowling"},
-	{ID: "2", Title: "The Lord of the Rings", Author: "J. R. R. Tolkien"},
-	{ID: "3", Title: "The Wizard of Oz", Author: "L. Frank Baum"},
-}
+const (
+	dbName          = "test"
+	hostName195     ="10.138.41.195:27017"
+	invalidRequest  = `{"status":"40000","error":"Invalid request"}`
+	internalError   = `{"status":"50000","error":"Internal server error"}`
+	notFoundError   = `{"status":"40004","error":"Book not found"}`
+	variableSuccess = `{"status":"20000","message": "Delete successful"}`
+)
+
+var (
+	mongoClient   *mongo.Client
+	kafkaProducer sarama.SyncProducer
+)
 
 //-------------------- function -----------------------//
 
+// connectDB
+func connectToMongo() error {
+	mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
+	// mongoURI := "mongodb://localhost:27017/"
+	clientOptions := options.Client().ApplyURI(mongoURI)
+	client, err := mongo.Connect(context.Background(), clientOptions)
+	if err != nil {
+		return err
+	}
+
+	mongoClient = client
+	fmt.Println("Connected to MongoDB")
+	return nil
+}
+
+// kafkaProducer
+func initKafkaProducer() error {
+	config := sarama.NewConfig()
+	config.Producer.RequiredAcks = sarama.WaitForAll
+	config.Producer.Return.Successes = true
+
+	brokers := []string{hostName195} // Update with your Kafka broker addresses
+	producer, err := sarama.NewSyncProducer(brokers, config)
+	if err != nil {
+		return err
+	}
+
+	kafkaProducer = producer
+	log.Println("Producer",kafkaProducer)
+	return nil
+}
+
 // check duplicate ID
 func isBookIDUnique(id string) bool {
-	for _, book := range books {
-		if book.ID == id {
-			return false
-		}
+	collection := mongoClient.Database(dbName).Collection("books")
+
+	filter := bson.M{"id": id}
+	count, err := collection.CountDocuments(context.Background(), filter)
+	if err != nil {
+		// Handle error (e.g., log, return false)
+		return false
 	}
-	return true
+
+	return count == 0
 }
 
 // Get
-func BookGet(ctx *fasthttp.RequestCtx) {
-	b, err := json.Marshal(books)
+func BookGetAll(ctx *fasthttp.RequestCtx) {
+	// Set response content type
+	ctx.SetContentType("application/json")
+
+	// Retrieve data from MongoDB
+	collection := mongoClient.Database(dbName).Collection("books")
+	filter := bson.D{} // You can add filtering criteria here
+
+	var results []Book
+	cur, err := collection.Find(context.Background(), filter)
 	if err != nil {
-		log.Fatal(err)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
 	}
-	ctx.Response.Header.SetContentType("application/json")
-	ctx.Write(b)
+	defer cur.Close(context.Background())
+
+	for cur.Next(context.Background()) {
+		var book Book
+		if err := cur.Decode(&book); err != nil {
+			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+			ctx.Write([]byte(internalError))
+			return
+		}
+		results = append(results, book)
+	}
+
+	// Respond with data
+	jsonBytes, _ := json.Marshal(results)
+	ctx.Write(jsonBytes)
+
+}
+
+// GetById
+func BookGetByID(ctx *fasthttp.RequestCtx) {
+	// Set response content type
+	ctx.SetContentType("application/json")
+
+	idStr := ctx.UserValue("id").(string)
+	log.Println("bookID", idStr)
+	// Retrieve book by ID from MongoDB
+	collection := mongoClient.Database(dbName).Collection("books")
+
+	// filter := bson.M{"_id": idStr}
+	filter := bson.M{"id": idStr}
+
+	var book Book
+	err := collection.FindOne(context.Background(), filter).Decode(&book)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusNotFound)
+		ctx.Write([]byte(notFoundError))
+		return
+	}
+
+	// Respond with the retrieved book
+	jsonBytes, _ := json.Marshal(book)
+	ctx.Write(jsonBytes)
 }
 
 // Post
 func BookPost(ctx *fasthttp.RequestCtx) {
-	ctx.Response.Header.SetContentType("application/json")
+	// Set response content type
+	ctx.SetContentType("application/json")
 
+	// Parse request body
 	var newBook Book
 	err := json.Unmarshal(ctx.Request.Body(), &newBook)
 	if err != nil {
-		ctx.Error("Invalid JSON", fasthttp.StatusBadRequest)
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
-	if !isBookIDUnique(newBook.ID) {
-		ctx.WriteString("Invalid add id")
+	// Check if the book ID is unique :set unique in database
+	if !isBookIDUnique(newBook.ID) || newBook.ID == "" {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
-	books = append(books, newBook)
-	responseJSON, _ := json.Marshal(newBook)
+	// Insert the new book into MongoDB
+	collection := mongoClient.Database(dbName).Collection("books")
+	_, err = collection.InsertOne(context.Background(), newBook)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
+	}
+
+	// Send message to Kafka topic
+	kafkaMessage := &sarama.ProducerMessage{
+		Topic: "new_book_topic", // Update with your Kafka topic
+		Value: sarama.StringEncoder(newBook.ID),
+	}
+	_, _, err = kafkaProducer.SendMessage(kafkaMessage)
+	if err != nil {
+		log.Println("Failed to send message to Kafka:", err)
+		// You might handle the error here as appropriate for your use case
+	}
+
+	// Respond with the added book
+	responseJSON, err := json.Marshal(newBook)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
+	}
+
 	ctx.Write(responseJSON)
 }
+
+// func BookPost(ctx *fasthttp.RequestCtx) {
+// 	// Set response content type
+// 	ctx.SetContentType("application/json")
+
+// 	// Parse request body
+// 	var newBook Book
+// 	err := json.Unmarshal(ctx.Request.Body(), &newBook)
+// 	if err != nil {
+// 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+// 		ctx.Write([]byte(invalidRequest))
+// 		return
+// 	}
+
+// 	// Check if the book ID is unique :set unique in database
+// 	if !isBookIDUnique(newBook.ID) || newBook.ID == ""{
+// 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+// 		ctx.Write([]byte(invalidRequest))
+// 		return
+// 	}
+
+// 	// Insert the new book into MongoDB
+// 	collection := mongoClient.Database(dbName).Collection("books")
+// 	_, err = collection.InsertOne(context.Background(), newBook)
+// 	if err != nil {
+// 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+// 		ctx.Write([]byte(internalError))
+// 		return
+// 	}
+
+// 	// Respond with the added book
+// 	responseJSON, err := json.Marshal(newBook)
+// 	if err != nil {
+// 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+// 		ctx.Write([]byte(internalError))
+// 		return
+// 	}
+
+// 	ctx.Write(responseJSON)
+// }
 
 // Patch
 func BookPatch(ctx *fasthttp.RequestCtx) {
-	ctx.Response.Header.SetContentType("application/json")
+	// Set response content type
+	ctx.SetContentType("application/json")
 
+	// Extract the book ID from the URL path parameters
 	idStr := ctx.UserValue("id").(string)
 
+	// Parse the request body
 	var updatedBook Book
-
-	b := ctx.Request.Body()
-	err := json.Unmarshal(b, &updatedBook)
-
+	err := json.Unmarshal(ctx.PostBody(), &updatedBook)
 	if err != nil {
-		ctx.Error("Invalid JSON", fasthttp.StatusBadRequest)
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(`{
+			"status":"40000",
+			"error": "Invalid JSON"}`))
 		return
 	}
 
-	// Find the book to update by ID
-	index := -1
-	for i := range books {
-		if books[i].ID == idStr {
-			index = i
-			break
-		}
-	}
-
-	if index == -1 {
-		ctx.Error("Book not found", fasthttp.StatusNotFound)
+	// Check the request id in body
+	if len(updatedBook.ID) != 0 {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(`{
+			"status":"40000",
+			"error": "Error request id in body"}`))
 		return
 	}
 
-	// Update the book's fields
-	if updatedBook.Title != "" {
-		books[index].Title = updatedBook.Title
-	}
-	if updatedBook.Author != "" {
-		books[index].Author = updatedBook.Author
-	}
+	// Update the book in MongoDB
+	collection := mongoClient.Database(dbName).Collection("books")
+	filter := bson.M{"id": idStr}
 
-	responseJSON, err := json.Marshal(books[index])
+	updateFields := bson.M{}
+
+	updateFields["title"] = updatedBook.Title
+
+	updateFields["author"] = updatedBook.Author
+
+	update := bson.M{"$set": updateFields}
+
+	_, err = collection.UpdateOne(context.Background(), filter, update)
+
+	log.Println("filter", filter)
+	log.Println("update", update)
 	if err != nil {
-		ctx.Error("Failed to marshal JSON", fasthttp.StatusInternalServerError)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
 		return
 	}
 
+	// Retrieve the updated book from MongoDB to include the id field
+	var updatedBookWithID Book
+	err = collection.FindOne(context.Background(), filter).Decode(&updatedBookWithID)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
+	}
+
+	// Respond with the updated book
+	responseJSON, err := json.Marshal(updatedBookWithID)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
+	}
 	ctx.Write(responseJSON)
 }
 
-// delete
-func BookDelete(ctx *fasthttp.RequestCtx) {
+// Delete ById
+func BookDeleteById(ctx *fasthttp.RequestCtx) {
+	// Set response content type
+	ctx.SetContentType("application/json")
+
 	idStr, ok := ctx.UserValue("id").(string)
 	if !ok {
-		ctx.Error("Invalid ID", fasthttp.StatusBadRequest)
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
-	index := -1
-	for i, book := range books {
-		if book.ID == idStr {
-			index = i
-			break
-		}
-	}
+	// Delete the book from MongoDB
+	collection := mongoClient.Database(dbName).Collection("books")
+	filter := bson.M{"id": idStr}
 
-	if index == -1 {
-		ctx.Error("No id", fasthttp.StatusNotFound)
+	_, err := collection.DeleteOne(context.Background(), filter)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
 		return
 	}
 
-	books = append(books[:index], books[index+1:]...)
-	ctx.WriteString("Delete successful")
+	ctx.Write([]byte(variableSuccess))
 }
 
 func main() {
-
-	//-------call function------//
 	r := router.New()
+	//run database
+	connectToMongo()
+	defer mongoClient.Disconnect(context.Background())
 
-	r.GET("/books", BookGet)
-	r.POST("/books", BookPost)
-	r.PATCH("/books/{id}", BookPatch)
-	r.DELETE("/books/{id}", BookDelete)
+	//------EndPoint-----------//
+	r.GET("/books/read", BookGetAll)
+	r.GET("/books/read/{id}", BookGetByID)
+	r.POST("/books/create", BookPost)
+	r.PATCH("/books/update/{id}", BookPatch)
+	r.DELETE("/books/delete/{id}", BookDeleteById)
 
 	fasthttp.ListenAndServe(":3000", r.Handler)
 

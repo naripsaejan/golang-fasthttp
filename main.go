@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 
-	// "github.com/Shopify/sarama"
 	"github.com/IBM/sarama"
 	"github.com/fasthttp/router"
 	"github.com/valyala/fasthttp"
@@ -24,26 +23,24 @@ type Book struct {
 
 // -------------------- variable -----------------------//
 const (
-	dbName         = "test"
-	invalidRequest = `{"status":"40000","error":"Invalid request"}`
-	internalError  = `{"status":"50000","error":"Internal server error"}`
-	notFoundError  = `{"status":"40004","error":"Book not found"}`
-	variableSuccess=`{
-		"status":"20000",
-		"message": "Delete successful"}`
+	dbName          = "test"
+	
+	invalidRequest  = `{"status":"40000","error":"Invalid request"}`
+	internalError   = `{"status":"50000","error":"Internal server error"}`
+	notFoundError   = `{"status":"40004","error":"Book not found"}`
+	successMessage = `{"status":"20000","message": "Operation successful"}`
 )
 
 var (
-	mongoClient *mongo.Client
-kafkaProducer sarama.SyncProducer
+	mongoClient   *mongo.Client
 )
 
 //-------------------- function -----------------------//
 
 // connectDB
 func connectToMongo() error {
-	// mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
-	mongoURI := "mongodb://localhost:27017/"
+	mongoURI := "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
+	// mongoURI := "mongodb://localhost:27017/"
 	clientOptions := options.Client().ApplyURI(mongoURI)
 	client, err := mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
@@ -54,21 +51,8 @@ func connectToMongo() error {
 	fmt.Println("Connected to MongoDB")
 	return nil
 }
-// kafkaProducer
-func initKafkaProducer() error {
-    config := sarama.NewConfig()
-    config.Producer.RequiredAcks = sarama.WaitForAll
-    config.Producer.Return.Successes = true
 
-    brokers := []string{"localhost:9092"} // Update with your Kafka broker addresses
-    producer, err := sarama.NewSyncProducer(brokers, config)
-    if err != nil {
-        return err
-    }
 
-    kafkaProducer = producer
-    return nil
-}
 // check duplicate ID
 func isBookIDUnique(id string) bool {
 	collection := mongoClient.Database(dbName).Collection("books")
@@ -144,25 +128,26 @@ func BookGetByID(ctx *fasthttp.RequestCtx) {
 }
 
 // Post
+// Post
 func BookPost(ctx *fasthttp.RequestCtx) {
-   	// Set response content type
-	ctx.SetContentType("application/json")
+    // Set response content type
+    ctx.SetContentType("application/json")
 
-	// Parse request body
-	var newBook Book
-	err := json.Unmarshal(ctx.Request.Body(), &newBook)
-	if err != nil {
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(invalidRequest))
-		return
-	}
+    // Parse request body
+    var newBook Book
+    err := json.Unmarshal(ctx.Request.Body(), &newBook)
+    if err != nil {
+        ctx.SetStatusCode(fasthttp.StatusBadRequest)
+        ctx.Write([]byte(invalidRequest))
+        return
+    }
 
-	// Check if the book ID is unique :set unique in database
-	if !isBookIDUnique(newBook.ID) || newBook.ID == ""{
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(invalidRequest))
-		return
-	}
+    // Check if the book ID is unique :set unique in database
+    if !isBookIDUnique(newBook.ID) || newBook.ID == "" {
+        ctx.SetStatusCode(fasthttp.StatusBadRequest)
+        ctx.Write([]byte(invalidRequest))
+        return
+    }
 
     // Insert the new book into MongoDB
     collection := mongoClient.Database(dbName).Collection("books")
@@ -173,18 +158,7 @@ func BookPost(ctx *fasthttp.RequestCtx) {
         return
     }
 
-    // Send message to Kafka topic
-    kafkaMessage := &sarama.ProducerMessage{
-        Topic: "new_book_topic", // Update with your Kafka topic
-        Value: sarama.StringEncoder(newBook.ID),
-    }
-    _, _, err = kafkaProducer.SendMessage(kafkaMessage)
-    if err != nil {
-        log.Println("Failed to send message to Kafka:", err)
-        // You might handle the error here as appropriate for your use case
-    }
-
-    // Respond with the added book
+    // Marshal the newBook to JSON
     responseJSON, err := json.Marshal(newBook)
     if err != nil {
         ctx.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -192,49 +166,39 @@ func BookPost(ctx *fasthttp.RequestCtx) {
         return
     }
 
+    // Create a Kafka producer config
+    kafkaConfig := sarama.NewConfig()
+    kafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
+    kafkaConfig.Producer.Return.Successes = true
+    kafkaConfig.Producer.Return.Errors = true
+
+    // Create a Kafka producer instance
+    kafkaProducer, err := sarama.NewSyncProducer([]string{"10.138.41.195:9092","10.138.41.196:9092"}, kafkaConfig)
+    if err != nil {
+        log.Println("Failed to create Kafka producer:", err)
+    } else {
+        defer kafkaProducer.Close()
+
+        // Send a Kafka message for the new book
+        kafkaMessage := &sarama.ProducerMessage{
+            Topic: "rip-test",
+            Key:   sarama.StringEncoder(newBook.ID),         // Use book ID as the key
+            Value: sarama.StringEncoder(string(responseJSON)), // Use responseJSON as the value
+        }
+
+        partition, offset, err := kafkaProducer.SendMessage(kafkaMessage)
+        if err != nil {
+            log.Println("Failed to send Kafka message:", err)
+        } else {
+            log.Printf("Kafka message sent. Partition: %d, Offset: %d\n", partition, offset)
+        }
+    }
+
+    // Respond with the added book
     ctx.Write(responseJSON)
 }
 
-// func BookPost(ctx *fasthttp.RequestCtx) {
-// 	// Set response content type
-// 	ctx.SetContentType("application/json")
 
-// 	// Parse request body
-// 	var newBook Book
-// 	err := json.Unmarshal(ctx.Request.Body(), &newBook)
-// 	if err != nil {
-// 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-// 		ctx.Write([]byte(invalidRequest))
-// 		return
-// 	}
-
-// 	// Check if the book ID is unique :set unique in database
-// 	if !isBookIDUnique(newBook.ID) || newBook.ID == ""{
-// 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-// 		ctx.Write([]byte(invalidRequest))
-// 		return
-// 	}
-
-	
-// 	// Insert the new book into MongoDB
-// 	collection := mongoClient.Database(dbName).Collection("books")
-// 	_, err = collection.InsertOne(context.Background(), newBook)
-// 	if err != nil {
-// 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-// 		ctx.Write([]byte(internalError))
-// 		return
-// 	}
-
-// 	// Respond with the added book
-// 	responseJSON, err := json.Marshal(newBook)
-// 	if err != nil {
-// 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-// 		ctx.Write([]byte(internalError))
-// 		return
-// 	}
-
-// 	ctx.Write(responseJSON)
-// }
 
 // Patch
 func BookPatch(ctx *fasthttp.RequestCtx) {
@@ -249,18 +213,14 @@ func BookPatch(ctx *fasthttp.RequestCtx) {
 	err := json.Unmarshal(ctx.PostBody(), &updatedBook)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(`{
-			"status":"40000",
-			"error": "Invalid JSON"}`))
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
 	// Check the request id in body
 	if len(updatedBook.ID) != 0 {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.Write([]byte(`{
-			"status":"40000",
-			"error": "Error request id in body"}`))
+		ctx.Write([]byte(invalidRequest))
 		return
 	}
 
@@ -328,7 +288,7 @@ func BookDeleteById(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	ctx.Write([]byte(variableSuccess))
+	ctx.Write([]byte(successMessage))
 }
 
 func main() {
@@ -337,10 +297,11 @@ func main() {
 	connectToMongo()
 	defer mongoClient.Disconnect(context.Background())
 
+
 	//------EndPoint-----------//
 	r.GET("/books/read", BookGetAll)
 	r.GET("/books/read/{id}", BookGetByID)
-	r.POST("/books/create", BookPost) 
+	r.POST("/books/create", BookPost)
 	r.PATCH("/books/update/{id}", BookPatch)
 	r.DELETE("/books/delete/{id}", BookDeleteById)
 
