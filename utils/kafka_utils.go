@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/IBM/sarama" // Import the correct package
+	// "github.com/bsm/sarama-cluster" // Import the correct package for consumer
 )
 
 // InitializeKafkaProducer initializes and returns a Kafka producer instance.
@@ -37,4 +38,41 @@ func SendMessageToKafka(producer sarama.SyncProducer, topic string, key string, 
 	}
 
 	return nil
+}
+
+
+// ConsumeMessagesFromKafka consumes messages from the specified Kafka topic.
+func ConsumeMessagesFromKafka(brokers []string, topics []string) error {
+	// 		log.Println(("test auto"))
+	// log.Println("check auto topics",topics)
+		consumer, err := sarama.NewConsumer(brokers, nil)
+	if err != nil {
+		return err
+	}
+	defer consumer.Close()
+
+	// Create a partition consumer for each topic and partition
+	for _, topic := range topics {
+		partitions, err := consumer.Partitions(topic)
+		if err != nil {
+			return err
+		}
+
+		for _, partition := range partitions {
+			partitionConsumer, err := consumer.ConsumePartition(topic, partition, sarama.OffsetNewest)
+			if err != nil {
+				return err
+			}
+
+			go func() {
+				for msg := range partitionConsumer.Messages() {
+					log.Printf("Received Kafka message: Topic - %s, Partition - %d, Offset - %d, Key - %s, Value - %s\n",
+						msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
+					// Process the Kafka message here if needed
+				}
+			}()
+		}
+	}
+
+	select {} // Keep the goroutine running
 }

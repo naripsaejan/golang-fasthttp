@@ -22,7 +22,7 @@ const (
 // MongoDB and Kafka configuration constants
 const (
 	dbName     = "test"
-	kafkaName  = "rip-test"
+	kafkaTopics  = "rip-test"
 )
 
 var (

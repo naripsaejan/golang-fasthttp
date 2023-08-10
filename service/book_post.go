@@ -1,14 +1,11 @@
 package service
 
 import (
-	//lib
 	"context"
 	"encoding/json"
 	"log"
 
-	// BookGetAll
 	"examp/hello-fast-http/utils"
-	//lib
 
 	"github.com/valyala/fasthttp"
 	"go.mongodb.org/mongo-driver/bson"
@@ -74,7 +71,7 @@ func BookPost(ctx *fasthttp.RequestCtx) {
 	defer kafkaProducer.Close()
 	
         // Send a Kafka message for the new book
-		err = utils.SendMessageToKafka(kafkaProducer, kafkaName, newBook.ID, responseJSON)
+		err = utils.SendMessageToKafka(kafkaProducer, kafkaTopics, newBook.ID, responseJSON)
 		if err != nil {
 			log.Println("Failed to send Kafka message:", err)
 		} else {
