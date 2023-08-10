@@ -23,10 +23,9 @@ const (
 const (
 	dbName     = "test"
 	kafkaName  = "rip-test"
-	mongoURI   = "mongodb://test:password@10.138.41.195:27017,10.138.41.196:27017,10.138.41.197:27017/?authSource=test&replicaSet=nmgw"
 )
 
 var (
 	MongoClient *mongo.Client
-
+	kafkaBrokers = []string{"10.138.41.195:9092", "10.138.41.196:9092"}
 )

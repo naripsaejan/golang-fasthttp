@@ -32,7 +32,7 @@ const (
 )
 
 var (
-	mongoClient   *mongo.Client
+	MongoClient   *mongo.Client
 	kafkaProducer sarama.SyncProducer
 )
 
@@ -48,7 +48,7 @@ func connectToMongo() error {
 		return err
 	}
 
-	mongoClient = client
+	MongoClient = client
 	fmt.Println("Connected to MongoDB")
 	return nil
 }
@@ -72,7 +72,7 @@ func initKafkaProducer() error {
 
 // check duplicate ID
 func isBookIDUnique(id string) bool {
-	collection := mongoClient.Database(dbName).Collection("books")
+	collection := MongoClient.Database(dbName).Collection("books")
 
 	filter := bson.M{"id": id}
 	count, err := collection.CountDocuments(context.Background(), filter)
@@ -90,7 +90,7 @@ func BookGetAll(ctx *fasthttp.RequestCtx) {
 	ctx.SetContentType("application/json")
 
 	// Retrieve data from MongoDB
-	collection := mongoClient.Database(dbName).Collection("books")
+	collection := MongoClient.Database(dbName).Collection("books")
 	filter := bson.D{} // You can add filtering criteria here
 
 	var results []Book
@@ -126,7 +126,7 @@ func BookGetByID(ctx *fasthttp.RequestCtx) {
 	idStr := ctx.UserValue("id").(string)
 	log.Println("bookID", idStr)
 	// Retrieve book by ID from MongoDB
-	collection := mongoClient.Database(dbName).Collection("books")
+	collection := MongoClient.Database(dbName).Collection("books")
 
 	// filter := bson.M{"_id": idStr}
 	filter := bson.M{"id": idStr}
@@ -166,7 +166,7 @@ func BookPost(ctx *fasthttp.RequestCtx) {
 	}
 
 	// Insert the new book into MongoDB
-	collection := mongoClient.Database(dbName).Collection("books")
+	collection := MongoClient.Database(dbName).Collection("books")
 	_, err = collection.InsertOne(context.Background(), newBook)
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -217,7 +217,7 @@ func BookPost(ctx *fasthttp.RequestCtx) {
 // 	}
 
 // 	// Insert the new book into MongoDB
-// 	collection := mongoClient.Database(dbName).Collection("books")
+// 	collection := MongoClient.Database(dbName).Collection("books")
 // 	_, err = collection.InsertOne(context.Background(), newBook)
 // 	if err != nil {
 // 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -265,7 +265,7 @@ func BookPatch(ctx *fasthttp.RequestCtx) {
 	}
 
 	// Update the book in MongoDB
-	collection := mongoClient.Database(dbName).Collection("books")
+	collection := MongoClient.Database(dbName).Collection("books")
 	filter := bson.M{"id": idStr}
 
 	updateFields := bson.M{}
@@ -318,7 +318,7 @@ func BookDeleteById(ctx *fasthttp.RequestCtx) {
 	}
 
 	// Delete the book from MongoDB
-	collection := mongoClient.Database(dbName).Collection("books")
+	collection := MongoClient.Database(dbName).Collection("books")
 	filter := bson.M{"id": idStr}
 
 	_, err := collection.DeleteOne(context.Background(), filter)
@@ -335,7 +335,7 @@ func main() {
 	r := router.New()
 	//run database
 	connectToMongo()
-	defer mongoClient.Disconnect(context.Background())
+	defer MongoClient.Disconnect(context.Background())
 
 	//------EndPoint-----------//
 	r.GET("/books/read", BookGetAll)
