@@ -10,7 +10,6 @@ require (
 )
 
 require (
-	github.com/Shopify/sarama v1.38.1 // indirect
 	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/bsm/sarama-cluster v2.1.15+incompatible // indirect
 	github.com/buaazp/fasthttprouter v0.1.1 // indirect

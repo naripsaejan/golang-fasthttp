@@ -13,7 +13,7 @@ import (
 
 
 func isBookIDUnique(id string) bool {
-	collection := MongoClient.Database(dbName).Collection("books")
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
 
 	filter := bson.M{"id": id}
 	count, err := collection.CountDocuments(context.Background(), filter)
@@ -47,7 +47,7 @@ func BookPost(ctx *fasthttp.RequestCtx) {
     }
 
     // Insert the new book into MongoDB
-    collection := MongoClient.Database(dbName).Collection("books")
+    collection := utils.MongoClient.Database(utils.DbName).Collection("books")
     _, err = collection.InsertOne(context.Background(), newBook)
     if err != nil {
         ctx.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -64,14 +64,14 @@ func BookPost(ctx *fasthttp.RequestCtx) {
     }
 
     // Create a Kafka producer instance
-	kafkaProducer, err := utils.InitializeKafkaProducer(kafkaBrokers)
+	kafkaProducer, err := utils.InitializeKafkaProducer(utils.KafkaBrokers)
 	if err != nil {
 		log.Fatal("Failed to initialize Kafka producer:", err)
 	}
 	defer kafkaProducer.Close()
 	
         // Send a Kafka message for the new book
-		err = utils.SendMessageToKafka(kafkaProducer, kafkaTopics, newBook.ID, responseJSON)
+		err = utils.SendMessageToKafka(kafkaProducer, utils.KafkaTopics, newBook.ID, responseJSON)
 		if err != nil {
 			log.Println("Failed to send Kafka message:", err)
 		} else {

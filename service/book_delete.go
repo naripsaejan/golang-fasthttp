@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"examp/hello-fast-http/utils"
 
 	"github.com/valyala/fasthttp"
 	"go.mongodb.org/mongo-driver/bson"
@@ -20,7 +21,7 @@ func BookDeleteById(ctx *fasthttp.RequestCtx) {
 	}
 
 	// Delete the book from MongoDB
-	collection := MongoClient.Database(dbName).Collection("books")
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
 	filter := bson.M{"id": idStr}
 
 	_, err := collection.DeleteOne(context.Background(), filter)

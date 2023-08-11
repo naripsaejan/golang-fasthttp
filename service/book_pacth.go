@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"examp/hello-fast-http/utils"
 	"log"
 
 	"github.com/valyala/fasthttp"
@@ -34,7 +35,7 @@ func BookPatch(ctx *fasthttp.RequestCtx) {
 	}
 
 	// Update the book in MongoDB
-	collection := MongoClient.Database(dbName).Collection("books")
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
 	filter := bson.M{"id": idStr}
 
 	updateFields := bson.M{}

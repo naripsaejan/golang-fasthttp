@@ -1,8 +1,4 @@
-// book.go
-
 package service
-
-import "go.mongodb.org/mongo-driver/mongo"
 
 // Book defines the structure of a book.
 type Book struct {
@@ -17,15 +13,4 @@ const (
 	internalError   = `{"status":"50000","error":"Internal server error"}`
 	notFoundError   = `{"status":"40004","error":"Book not found"}`
 	successMessage = `{"status":"20000","message":"Operation successful"}`
-)
-
-// MongoDB and Kafka configuration constants
-const (
-	dbName     = "test"
-	kafkaTopics  = "rip-test"
-)
-
-var (
-	MongoClient *mongo.Client
-	kafkaBrokers = []string{"10.138.41.195:9092", "10.138.41.196:9092"}
 )

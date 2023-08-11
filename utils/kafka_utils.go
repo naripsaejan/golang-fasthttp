@@ -2,11 +2,14 @@ package utils
 
 import (
 	"log"
+
 	"github.com/IBM/sarama" // Import the correct package
 )
 
 // InitializeKafkaProducer initializes and returns a Kafka producer instance.
 func InitializeKafkaProducer(brokers []string) (sarama.SyncProducer, error) {
+			log.Println(("----------------InitializeKafkaProducer----------------"))
+
 	config := sarama.NewConfig()
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Return.Successes = true
@@ -23,6 +26,8 @@ func InitializeKafkaProducer(brokers []string) (sarama.SyncProducer, error) {
 
 // SendMessageToKafka sends a message to the specified Kafka topic.
 func SendMessageToKafka(producer sarama.SyncProducer, topic string, key string, value []byte) error {
+			log.Println(("----------------SendMessageToKafka----------------"))
+
 	message := &sarama.ProducerMessage{
 		Topic: topic,
 		Key:   sarama.StringEncoder(key),
@@ -41,7 +46,7 @@ func SendMessageToKafka(producer sarama.SyncProducer, topic string, key string, 
 
 // ConsumeMessagesFromKafka consumes messages from the specified Kafka topic.
 func ConsumeMessagesFromKafka(brokers []string, topics []string) error {
-	// 		log.Println(("test auto"))
+			log.Println(("----------------ConsumeMessagesFromKafka----------------"))
 	// log.Println("check auto topics",topics)
 		consumer, err := sarama.NewConsumer(brokers, nil)
 	if err != nil {

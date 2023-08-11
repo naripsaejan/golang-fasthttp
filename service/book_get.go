@@ -3,11 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"log"
-
 	"examp/hello-fast-http/utils"
 
+	"log"
+
 	"github.com/valyala/fasthttp"
+
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -17,7 +18,7 @@ func BookGetAll(ctx *fasthttp.RequestCtx) {
 	ctx.SetContentType("application/json")
 
 	// Retrieve data from MongoDB
-	collection := MongoClient.Database(dbName).Collection("books")
+	collection :=utils.MongoClient.Database(utils.DbName).Collection("books")
 	filter := bson.D{} // You can add filtering criteria here
 
 	var results []Book
@@ -53,7 +54,7 @@ func BookGetByID(ctx *fasthttp.RequestCtx) {
 	idStr := ctx.UserValue("id").(string)
 	log.Println("bookID", idStr)
 	// Retrieve book by ID from MongoDB
-	collection := MongoClient.Database(dbName).Collection("books")
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
 
 	// filter := bson.M{"_id": idStr}
 	filter := bson.M{"id": idStr}
@@ -76,7 +77,7 @@ func BookGetAllConsumer(ctx *fasthttp.RequestCtx) {
 	ctx.SetContentType("application/json")
 
 	// Retrieve data from MongoDB
-	collection := MongoClient.Database(dbName).Collection("books")
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
 	filter := bson.D{} // You can add filtering criteria here
 
 	var results []Book
@@ -106,7 +107,7 @@ func BookGetAllConsumer(ctx *fasthttp.RequestCtx) {
 	go func() {
 		kafkaTopics := []string{"rip-test"}
 
-		err := utils.ConsumeMessagesFromKafka(kafkaBrokers, kafkaTopics)
+		err := utils.ConsumeMessagesFromKafka(utils.KafkaBrokers, kafkaTopics)
 		if err != nil {
 			log.Println("Error consuming Kafka messages:", err)
 		}
