@@ -2,9 +2,7 @@ package utils
 
 import (
 	"log"
-
 	"github.com/IBM/sarama" // Import the correct package
-	// "github.com/bsm/sarama-cluster" // Import the correct package for consumer
 )
 
 // InitializeKafkaProducer initializes and returns a Kafka producer instance.
