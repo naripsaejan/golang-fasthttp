@@ -16,8 +16,6 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// -------------------- variable -----------------------//
-
 //-------------------- function -----------------------//
 
 func main() {
@@ -26,7 +24,6 @@ func main() {
 	defer utils.MongoClient.Disconnect(context.Background())
 
 	r.GET("/books/read", service.BookGetAll)
-	r.GET("/books/readConsumer", service.BookGetAllConsumer)
 	r.GET("/books/read/{id}", service.BookGetByID)
 	r.POST("/books/create", service.BookPost)
 	r.PATCH("/books/update/{id}", service.BookPatch)

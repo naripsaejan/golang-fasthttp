@@ -47,8 +47,9 @@ func SendMessageToKafka(producer sarama.SyncProducer, topic string, key string, 
 // ConsumeMessagesFromKafka consumes messages from the specified Kafka topic.
 func ConsumeMessagesFromKafka(brokers []string, topics []string) error {
 			log.Println(("----------------ConsumeMessagesFromKafka----------------"))
-	// log.Println("check auto topics",topics)
 		consumer, err := sarama.NewConsumer(brokers, nil)
+			log.Println(("----------------ConsumeMessagesFromKafka ==> consumer----------------"))
+		
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,11 @@ func ConsumeMessagesFromKafka(brokers []string, topics []string) error {
 			}
 
 			go func() {
+			log.Println(("---------------- go in ConsumeMessagesFromKafka----------------"))
+
 				for msg := range partitionConsumer.Messages() {
+			log.Println(("---------------- for in ConsumeMessagesFromKafka----------------"))
+
 					log.Printf("Received Kafka message: Topic - %s, Partition - %d, Offset - %d, Key - %s, Value - %s\n",
 						msg.Topic, msg.Partition, msg.Offset, string(msg.Key), string(msg.Value))
 					// Process the Kafka message here if needed
