@@ -24,6 +24,8 @@ func main() {
 	defer utils.MongoClient.Disconnect(context.Background())
 
 	r.GET("/books/read", service.BookGetAll)
+	r.GET("/books/readConsumer", service.BookGetAllConsumer)
+	r.GET("/books/readConsumerGroup", service.BookGetAllConsumerGroup)
 	r.GET("/books/read/{id}", service.BookGetByID)
 	r.POST("/books/create", service.BookPost)
 	r.PATCH("/books/update/{id}", service.BookPatch)

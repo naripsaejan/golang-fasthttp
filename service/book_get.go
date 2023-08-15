@@ -44,16 +44,6 @@ func BookGetAll(ctx *fasthttp.RequestCtx) {
 	jsonBytes, _ := json.Marshal(results)
 	ctx.Write(jsonBytes)
 
-	// Consume Kafka messages in the background
-	go func() {
-		kafkaTopics := []string{"rip-test"}
-
-		err := utils.ConsumeMessagesFromKafka(utils.KafkaBrokers, kafkaTopics)
-		if err != nil {
-			log.Println("Error consuming Kafka messages:", err)
-		}
-	}()
-
 }
 
 // GetById
@@ -80,4 +70,98 @@ func BookGetByID(ctx *fasthttp.RequestCtx) {
 	// Respond with the retrieved book
 	jsonBytes, _ := json.Marshal(book)
 	ctx.Write(jsonBytes)
+}
+
+//----------------get consumer -------------------//
+// ConsumeKafkaMessages consumes Kafka messages.
+func ConsumeKafkaMessages() {
+	err := utils.ConsumeMessagesFromKafka(utils.KafkaBrokers, utils.KafkaTopics)
+	if err != nil {
+		log.Println("Error consuming Kafka messages:", err)
+	}
+}
+
+func BookGetAllConsumer(ctx *fasthttp.RequestCtx) {
+	// Set response content type
+	ctx.SetContentType("application/json")
+
+	// Retrieve data from MongoDB
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
+	filter := bson.D{} // You can add filtering criteria here
+
+	var results []Book
+	cur, err := collection.Find(context.Background(), filter)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
+	}
+	defer cur.Close(context.Background())
+
+	for cur.Next(context.Background()) {
+		var book Book
+		if err := cur.Decode(&book); err != nil {
+			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+			ctx.Write([]byte(internalError))
+			return
+		}
+		results = append(results, book)
+	}
+
+	// Respond with data
+	jsonBytes, _ := json.Marshal(results)
+	ctx.Write(jsonBytes)
+    
+	// Consume Kafka messages in the background
+	go func() {
+log.Println("get=> ConsumeMessagesFromKafka")
+
+		err := utils.ConsumeMessagesFromKafka(utils.KafkaBrokers, utils.KafkaTopics)
+		if err != nil {
+			log.Println("Error consuming Kafka messages:", err)
+		}
+	}()
+
+}
+
+func BookGetAllConsumerGroup(ctx *fasthttp.RequestCtx) {
+	// Set response content type
+	ctx.SetContentType("application/json")
+
+	// Retrieve data from MongoDB
+	collection := utils.MongoClient.Database(utils.DbName).Collection("books")
+	filter := bson.D{} // You can add filtering criteria here
+
+	var results []Book
+	cur, err := collection.Find(context.Background(), filter)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Write([]byte(internalError))
+		return
+	}
+	defer cur.Close(context.Background())
+
+	for cur.Next(context.Background()) {
+		var book Book
+		if err := cur.Decode(&book); err != nil {
+			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+			ctx.Write([]byte(internalError))
+			return
+		}
+		results = append(results, book)
+	}
+
+	// Respond with data
+	jsonBytes, _ := json.Marshal(results)
+	ctx.Write(jsonBytes)
+
+	// Consume Kafka messages in the background using a consumer group
+	go func() {
+		log.Println("get=> ConsumeMessagesWithConsumerGroup")
+
+		err := utils.ConsumeMessagesWithConsumerGroup(utils.KafkaBrokers, utils.KafkaTopics, "rip-group1")
+		if err != nil {
+			log.Println("Error consuming Kafka messages:", err)
+		}
+	}()
 }
